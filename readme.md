@@ -53,5 +53,5 @@ Generate a CSV file and use it as an source file for your tool. When running the
 ## Steps to test and check functional
 
 1. node fileEnlarger.js
-2. npm start csv2json.js --sourceFile "assets/testCopy.csv" --resultFile "assets/result.json" --separator ","
+2. npm start csv2json.js --sourceFile "assets/test.csv" --resultFile "assets/result.json" --separator ","
 3. npm start json2csv.js --sourceFile "assets/result.json" --resultFile "assets/result.csv"

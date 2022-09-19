@@ -12,31 +12,31 @@ const makeHeavyFile = (data) => {
   const arrayLines = Array.from({ length: 1500 }, () => newLine);
   const heavyString = arrayLines.join();
   const interval = setInterval(() => {
-    const stats = fs.statSync('../assets/testCopy.csv').size;
+    const stats = fs.statSync('./assets/testCopy.csv').size;
     console.log(stats)
     if (stats > maxSize) {
       return clearInterval(interval)
     }
-    fs.appendFileSync('../assets/testCopy.csv', heavyString)
+    fs.appendFileSync('./assets/testCopy.csv', heavyString)
   })
 }
 
 
 const fileEnlarger = () => {
-  fs.readFile('../assets/testCopy.csv', (err, data) => {
+  fs.readFile('testCopy.csv', (err, data) => {
     if (err) {
       console.log("doesn't exists");
-      fs.copyFile('../assets/test.csv', '../assets/testCopy.csv', err => {
+      fs.copyFile('./assets/test.csv', './assets/testCopy.csv', err => {
         if (err) {
           console.log(err)
         }
-        fs.readFile('../assets/testCopy.csv', (err, data) => {
+        fs.readFile('./assets/testCopy.csv', (err, data) => {
           makeHeavyFile(data)
         })
       })
     } else {
       console.log("exists");
-      fs.readFile('../assets/testCopy.csv', (err, data) => {
+      fs.readFile('./assets/testCopy.csv', (err, data) => {
         if (err) {
           console.log(err)
         } else {

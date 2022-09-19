@@ -1,50 +1,79 @@
 const fs = require('fs');
-const readline = require('readline');
+const { Transform } = require('stream');
 
 const csv2jsonConverter = (fullSourceFile, fullResultFile, separator = ',') => {
-  console.log('Processing.......');
-  console.time('csv2json');
 
-  let i = 0;
-  let tableHead;
+  const createTransformStream = () => {
+    let isFirstChunk = true;
+    let headers;
+    let firstString;
+    let prevString;
+    let jsonInArr = [];
+
+    return new Transform({
+      final(callback) {
+        const lastJson = headers.reduce((acc, val, index) => {
+          return {
+            ...acc,
+            [val]: prevString[index]
+          }
+        }, {})
+        jsonInArr.push(lastJson)
+        this.push(JSON.stringify(jsonInArr))
+        callback();
+      },
+      transform(chunk, encoding, callback) {
+        const lines = chunk.toString().split('\r\n');
+        const updateJson = () => {
+          prevString = lines.splice(lines.length - 1, 1)[0].split(separator);
+          const jsonFromChunk = lines.map(line => {
+            const lineDataInArr = line.split(separator);
+            const json = headers.reduce((acc, val, index) => {
+              return {
+                ...acc,
+                [val]: lineDataInArr[index]
+              }
+            }, {})
+            return json
+          })
+          jsonInArr = [...jsonInArr, ...jsonFromChunk];
+        }
+        if (isFirstChunk && !headers) {
+          headers = lines.splice(0, 1)[0].split(separator);
+        }
+        if (!isFirstChunk) {
+          firstString = lines.splice(0, 1)[0].split(separator);
+          if (
+            firstString.length === headers.length &&
+            prevString.length === headers.length
+          ) {
+            lines.unshift(firstString.join(separator));
+            lines.unshift(prevString.join(separator));
+            updateJson()
+          }
+          if (
+            firstString.length !== headers.length || 
+            prevString.length !== headers.length
+          ) {
+            prevString[prevString.length - 1] += firstString.splice(0, 1)[0]
+            prevString = [...prevString, ...firstString]
+            lines.unshift(prevString.join(separator));
+            updateJson()
+          }
+        } else {
+          updateJson()
+          isFirstChunk = false;
+        }
+        callback()
+      }
+    });
+  }
+
   const readFileStream = fs.createReadStream(fullSourceFile);
   const writeStream = fs.createWriteStream(fullResultFile);
+  const transformStream = createTransformStream();
 
-  const rl = readline.createInterface({
-    input: readFileStream,
-    crlfDelay: Infinity
-  });
-
-  rl.on('line', line => {
-    let dataObj = {};
-    const values = line.split(separator);
-
-    switch (i) {
-      case 0:
-        tableHead = line.split(separator);
-        writeStream.write('[\r\n');
-        break;
-      case 1:
-        tableHead.forEach((el, index) => {
-          dataObj[el] = values[index];
-        })
-        writeStream.write(JSON.stringify(dataObj, null, 2));
-      default:
-        tableHead.forEach((el, index) => {
-          dataObj[el] = values[index];
-        })
-        writeStream.write(',\r\n')
-        writeStream.write(JSON.stringify(dataObj, null, 2));
-        break;
-    }
-    i++;
-  })
-
-  rl.on('close', () => {
-    writeStream.write('\r\n]');
-    console.log('Done!');
-    console.timeEnd('csv2json');
-  })
+  readFileStream.pipe(transformStream).pipe(writeStream)
 }
 
 exports.converter = csv2jsonConverter;
