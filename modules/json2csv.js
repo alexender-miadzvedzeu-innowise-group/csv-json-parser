@@ -1,53 +1,88 @@
 const fs = require('fs');
-const readline = require('readline');
+const { Transform } = require('stream');
 
 const json2csvConverter = (fullSourceFile, fullResultFile, separator = ',') => {
-  console.log('Processing.......');
-  console.time('json2Csv');
-
-  let matchedObjectHeadStart = false;
-  let matchedObjectHeadEnd = false;
-  let headerWritten = false;
-  let objectString = '';
   const readFileStream = fs.createReadStream(fullSourceFile);
   const writeStream = fs.createWriteStream(fullResultFile);
 
-  const rl = readline.createInterface({
-    input: readFileStream,
-    crlfDelay: Infinity
-  });
+  const bracketsRemover = el => el.replace(/[\])}[{(]/g, '').trim().split(',\n');
+  
+  const createTransformStream = () => {
+    let i = 0;
+    let isFirstChunk = true;
+    let table = '';
+    let tableColumnsNum;
+    let prevJsonPart;
+    return new Transform({
+      final(callback) {
+        const lastStr = prevJsonPart[0].split(',').reduce((acc, val) => {
+          const [value] = val.match(/\:.*/g)
+          const cleanValue = value.replace(':', '').replace('"', '').replace('"', '')
+          return acc + `${cleanValue},`
+        }, '');
+        table += lastStr;
+        this.push(table)
+        callback();
+      },
+      transform(chunk, encoding, callback) {
+        const data = chunk.toString();
+        const arrData = data.split('},').map(bracketsRemover);
+        const addValidData = () => {
+          arrData.forEach(([str]) => {
+            const objectPairs = str.split(',');
+            if (objectPairs.length === tableColumnsNum) {
+              objectPairs.forEach(pair => {
+                const [value] = pair.match(/\:.*/g)
+                const cleanValue = value.replace(':', '').replace('"', '').replace('"', '')
+                table += `${cleanValue},`
+              });
+              table += '\r\n'
+            }
+          })
+        }
+        
+        if (!table) {
+          const firstObj = arrData[0][0].split(',');
+          tableColumnsNum = firstObj.length;
+          firstObj.forEach(str => {
+            const [tableRowKey] = str.split(':');
+            table += `${tableRowKey.replace('"', '').replace('"', '')},`
+          })
+          table += '\r\n'
+        }
 
-  rl.on('line', line => {
-    if (!matchedObjectHeadStart && line.indexOf('{') !== -1) {
-      objectString += `${line}`;
-      matchedObjectHeadStart = true;
-    };
-    if (!matchedObjectHeadEnd && line.indexOf('}') !== -1) { 
-      objectString += `${line.replace(',', '')}`;
-      matchedObjectHeadEnd = true;
-    };
-    if (matchedObjectHeadStart && !matchedObjectHeadEnd && line.indexOf('{') === -1) {
-      objectString += `${line}`;
-    }
-    if (matchedObjectHeadStart && matchedObjectHeadEnd && objectString.length) {
-      const firstObjectInJson = JSON.parse(objectString);
-      const tableHeadString = Object.keys(firstObjectInJson).join(separator);
-      const valuesString = Object.values(firstObjectInJson).join(separator);
-      if (!headerWritten) {
-        writeStream.write(`${tableHeadString}\r\n`);
-        headerWritten = true;
+        if (isFirstChunk) {
+          prevJsonPart = arrData.splice(arrData.length - 1, 1)[0]
+          addValidData();
+        } else {
+          const firstJsonPart = arrData.splice(0 ,1)[0];
+          const res = prevJsonPart;
+          res[res.length - 1] += firstJsonPart.splice(0, 1)[0]
+          res.concat(firstJsonPart);
+          const objectPairs = res[0].split(',');
+          objectPairs.forEach(pair => {
+            const [value] = pair.match(/\:.*/g)
+            const cleanValue = value.replace(':', '').replace('"', '').replace('"', '')
+            table += `${cleanValue},`
+          });
+          table += '\r\n';
+          prevJsonPart = arrData.splice(arrData.length - 1, 1)[0];
+          addValidData();
+        }
+        if (isFirstChunk) {
+          isFirstChunk = false;
+        }
+        callback()
+        i++;
       }
-      writeStream.write(`${valuesString}\r\n`);
-      matchedObjectHeadStart = false;
-      matchedObjectHeadEnd = false;
-      objectString = '';
-    }
-  })
+    });
+  }
 
-  rl.on('close', () => {
-    console.log('Done!');
-    console.timeEnd('json2Csv');
-  })
+  const transformStream = createTransformStream();
+
+
+  readFileStream.pipe(transformStream).pipe(writeStream)
+
 }
 
 exports.converter = json2csvConverter;
